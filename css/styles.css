@@ -669,6 +669,7 @@ body.dark-mode .empty-state {
   top: 0;
   z-index: 1;
 }
+
 .all-operators-table th.operator-name {
   text-align: left;
   min-width: 170px;
@@ -1221,7 +1222,6 @@ select:disabled {
   }
 }
 
-
 /* Ahora en turno */
 .now-box {
   margin: 0 0 14px;
@@ -1232,9 +1232,15 @@ select:disabled {
   font-size: 14px;
   line-height: 1.6;
 }
-.now-title { font-weight: 700; margin-bottom: 4px; }
-@media print { #icsBtn { display: none; } }
-
+.now-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+@media print {
+  #icsBtn {
+    display: none;
+  }
+}
 
 /* =========================================================
    13. ACABADO VISUAL: TEMA CLARO / OSCURO
@@ -1252,7 +1258,7 @@ select:disabled {
   --muted: #718096;
   --border: #e3eaf4;
   --radius: 15px;
-  --shadow: 0 8px 26px rgba(30, 55, 90, .07);
+  --shadow: 0 8px 26px rgba(30, 55, 90, 0.07);
   --ma: #2998e8;
   --ml: #2455c3;
   --ta: #f2a12a;
@@ -1263,16 +1269,22 @@ select:disabled {
 
 body {
   background:
-    radial-gradient(ellipse at 8% 0%, rgba(75, 135, 220, .09), transparent 32rem),
+    radial-gradient(
+      ellipse at 8% 0%,
+      rgba(75, 135, 220, 0.09),
+      transparent 32rem
+    ),
     var(--background);
   color: var(--text);
-  transition: background-color .25s ease, color .25s ease;
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease;
 }
 
 .header {
   background: linear-gradient(120deg, #142d50 0%, #245da5 58%, #397fd0 100%);
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: 0 14px 32px rgba(23, 57, 103, .18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 32px rgba(23, 57, 103, 0.18);
 }
 
 .toolbar,
@@ -1290,16 +1302,16 @@ body {
 
 .panel-title {
   color: var(--primary);
-  letter-spacing: -.2px;
+  letter-spacing: -0.2px;
 }
 
 button {
   border-radius: 10px;
-  box-shadow: 0 3px 8px rgba(20, 55, 100, .12);
+  box-shadow: 0 3px 8px rgba(20, 55, 100, 0.12);
 }
 
 button:active {
-  transform: translateY(0) scale(.98);
+  transform: translateY(0) scale(0.98);
 }
 
 .secondary {
@@ -1316,7 +1328,10 @@ input,
 select {
   background: var(--surface);
   border-radius: 10px;
-  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
 }
 
 .summary-card {
@@ -1345,7 +1360,7 @@ select {
 
 .month h2 {
   background: linear-gradient(105deg, #1d477e, #2d6bb5);
-  box-shadow: 0 4px 12px rgba(29, 71, 126, .16);
+  box-shadow: 0 4px 12px rgba(29, 71, 126, 0.16);
 }
 
 .dow {
@@ -1400,16 +1415,20 @@ body.dark-mode {
   --border: #293952;
   --primary: #9fc5ff;
   --primary-light: #75aaf0;
-  --shadow: 0 10px 30px rgba(0, 0, 0, .22);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
   background:
-    radial-gradient(ellipse at 12% 0%, rgba(52, 100, 174, .18), transparent 34rem),
+    radial-gradient(
+      ellipse at 12% 0%,
+      rgba(52, 100, 174, 0.18),
+      transparent 34rem
+    ),
     var(--background);
   color: var(--text);
 }
 
 body.dark-mode .header {
   background: linear-gradient(120deg, #101d33 0%, #1b3a63 58%, #28558b 100%);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, .25);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.25);
 }
 
 body.dark-mode .toolbar,
@@ -1558,7 +1577,7 @@ body.dark-mode .all-view-note {
 
 /* Contraste y accesibilidad */
 :focus-visible {
-  outline: 3px solid rgba(66, 133, 220, .5);
+  outline: 3px solid rgba(66, 133, 220, 0.5);
   outline-offset: 2px;
 }
 
@@ -1570,7 +1589,10 @@ body.dark-mode .all-view-note {
   .legend-item,
   .next-item,
   .day {
-    transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 }
 
@@ -1580,5 +1602,147 @@ body.dark-mode .all-view-note {
     color-scheme: light;
     background: #fff;
     color: #111;
+  }
+}
+
+/* PANEL DE CONTROL Y GESTIÓN */
+.management-grid,
+.management-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.management-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.management-card h4,
+.management-columns h4,
+#insightsContent h4 {
+  margin: 0 0 8px;
+  color: var(--primary-light);
+}
+.management-card label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.management-card input,
+.management-card select {
+  width: 100%;
+}
+.management-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+.insight-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.insight-card {
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.insight-card small,
+.team-chip span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.insight-card strong {
+  display: block;
+  font-size: 26px;
+  margin-top: 5px;
+}
+.team-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 10px 0 18px;
+}
+.team-chip {
+  border: 1px solid var(--border);
+  background: var(--background);
+  padding: 10px 13px;
+  border-radius: 10px;
+}
+.team-chip strong {
+  display: block;
+  margin-bottom: 3px;
+}
+.validation-ok,
+.validation-warning {
+  padding: 11px 13px;
+  border-radius: 9px;
+  font-weight: 650;
+  font-size: 13px;
+}
+.validation-ok {
+  color: #166534;
+  background: #dcfce7;
+}
+.validation-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+.management-columns {
+  margin-top: 20px;
+}
+.log-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.log-item:last-child {
+  border-bottom: 0;
+}
+.log-item small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+body.dark-mode .management-card,
+body.dark-mode .insight-card {
+  background: var(--surface);
+  color: var(--text);
+}
+body.dark-mode .validation-ok {
+  background: #153b30;
+  color: #a7f3d0;
+}
+body.dark-mode .validation-warning {
+  background: #49351a;
+  color: #fde68a;
+}
+@media (max-width: 760px) {
+  .management-grid,
+  .management-columns {
+    grid-template-columns: 1fr;
+  }
+  .insight-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .log-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .log-item button {
+    width: 100%;
   }
 }

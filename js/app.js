@@ -71,6 +71,13 @@ let selectedYearFilter = "all"; // filtro de año: "all" o "2027"
 let selectedMonthFilter = "all"; // filtro de mes: "all" o índice 0-11 como texto ("6" = julio)
 let statsStartDate = ""; // rango del resumen (YYYY-MM-DD); vacío = año completo
 let statsEndDate = "";
+const OVERRIDES_KEY = "turnos_operaciones_overrides_v1";
+const SWAPS_KEY = "turnos_operaciones_swaps_v1";
+const AUDIT_KEY = "turnos_operaciones_audit_v1";
+let runtimeOverrides = [];
+let swapRequests = [];
+let auditLog = [];
+let selectedTeamFilter = "all";
 
 const $ = (id) => document.getElementById(id);
 
@@ -693,6 +700,22 @@ function getMonthData(month, row) {
     result.set(day, SHIFTS[code] ? code : "");
   }
 
+  // Los cambios introducidos desde la interfaz prevalecen sobre el ciclo base.
+  runtimeOverrides.forEach((item) => {
+    if (item.operator !== row?.[0]) return;
+    const from = new Date(item.from + "T00:00:00");
+    const to = new Date(item.to + "T00:00:00");
+    for (
+      let date = new Date(month.year, month.index, 1);
+      date <= new Date(month.year, month.index + 1, 0);
+      date.setDate(date.getDate() + 1)
+    ) {
+      if (date >= from && date <= to) {
+        result.set(date.getDate(), SHIFTS[item.shift] ? item.shift : "");
+      }
+    }
+  });
+
   return result;
 }
 
@@ -785,8 +808,14 @@ function calculateStats(row, startDate = "", endDate = "") {
 function renderStats(row) {
   const result = calculateStats(row, statsStartDate, statsEndDate);
   const stats = result.stats;
+  const totalHours =
+    ["MA", "ML", "TA", "TL", "NA", "NL"].reduce(
+      (sum, code) => sum + stats[code],
+      0,
+    ) * 8;
 
   const cards = [
+    ["HORAS", "Horas trabajadas", "#0f766e", totalHours],
     ["MA", "Mañana Arteixo", "var(--ma)"],
     ["ML", "Mañana Laracha", "var(--ml)"],
 
@@ -831,7 +860,7 @@ function renderStats(row) {
                 ([code, name, color]) => `
                 <div class="summary-card" style="--accent:${color}">
                     <small>${name}</small>
-                    <strong>${stats[code]}</strong>
+                    <strong>${code === "HORAS" ? totalHours : stats[code]}</strong>
                     <small>${code}</small>
                 </div>
             `,
@@ -1283,10 +1312,16 @@ function renderAllOperatorsCalendar() {
   }
 
   visibleMonths.forEach((month) => {
-    const monthData = operators.map((operator) => ({
-      name: operator.name,
-      shifts: getMonthData(month, operator.row),
-    }));
+    const monthData = operators
+      .filter(
+        (operator) =>
+          selectedTeamFilter === "all" ||
+          getOperatorTeam(operator.name) === selectedTeamFilter,
+      )
+      .map((operator) => ({
+        name: operator.name,
+        shifts: getMonthData(month, operator.row),
+      }));
     // Ordenar la grilla por el equipo definido en PLAN (Equipo 1, 2, 3...).
     // Los operadores que no estén asignados a un equipo quedan al final.
     const getTeamOrder = (operatorName) => {
@@ -1310,8 +1345,8 @@ function renderAllOperatorsCalendar() {
 
     let table = `
             <h2>
-                <span>${month.name} · Cuadrante general</span>
-                <small>${month.year} · ${operators.length} operadores</small>
+                <span class="mes" >${month.name} </span>
+                <small>${month.year} · ${monthData.length} operadores</small>
             </h2>
             <p class="all-view-note">Cada fila representa un operador. Desliza horizontalmente para consultar todos los días del mes.</p>
             <div class="all-operators-wrap">
@@ -1377,6 +1412,8 @@ function renderAllOperatorsCalendar() {
 function render() {
   if (!operators.length) return;
   $("icsBtn").hidden = !currentOperator;
+  renderManagementPanels();
+  renderInsights();
 
   if (currentOperator) {
     const row = currentOperator.row;
@@ -1448,6 +1485,238 @@ $("yearFilter").addEventListener("change", function () {
 
 $("printBtn").addEventListener("click", function () {
   window.print();
+});
+
+/* =========================================
+   MEJORAS: equipos, validaciones, gestión y auditoría
+========================================= */
+function getOperatorTeam(name) {
+  const team = PLAN.equipos.find((t) =>
+    t.miembros.some((m) => m.nombre === name),
+  );
+  return team?.nombre || "Sin equipo";
+}
+
+function saveManagementData() {
+  try {
+    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(runtimeOverrides));
+    localStorage.setItem(SWAPS_KEY, JSON.stringify(swapRequests));
+    localStorage.setItem(AUDIT_KEY, JSON.stringify(auditLog.slice(0, 100)));
+  } catch (error) {
+    console.warn("No se pudo guardar la gestión local.", error);
+  }
+}
+
+function loadManagementData() {
+  try {
+    runtimeOverrides = JSON.parse(localStorage.getItem(OVERRIDES_KEY) || "[]");
+    swapRequests = JSON.parse(localStorage.getItem(SWAPS_KEY) || "[]");
+    auditLog = JSON.parse(localStorage.getItem(AUDIT_KEY) || "[]");
+  } catch (error) {
+    runtimeOverrides = [];
+    swapRequests = [];
+    auditLog = [];
+  }
+}
+
+function addAudit(message) {
+  auditLog.unshift({ date: new Date().toISOString(), message });
+  auditLog = auditLog.slice(0, 100);
+  saveManagementData();
+}
+
+function renderManagementPanels() {
+  const names = operators.map((o) => o.name);
+  ["exceptionOperator", "swapFromOperator", "swapToOperator"].forEach((id) => {
+    const select = $(id);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = names
+      .map(
+        (name) =>
+          `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`,
+      )
+      .join("");
+    if (names.includes(previous)) select.value = previous;
+  });
+  const requests = $("swapRequests");
+  if (requests) {
+    requests.innerHTML = swapRequests.length
+      ? swapRequests
+          .map(
+            (r) => `
+      <div class="log-item">
+        <div><strong>${escapeHTML(r.from)}</strong> ↔ <strong>${escapeHTML(r.to)}</strong><small>${escapeHTML(r.date)} · ${escapeHTML(r.status)}</small></div>
+        ${r.status === "Pendiente" ? `<button class="secondary swap-approve" data-id="${r.id}" type="button">Marcar aprobada</button>` : ""}
+      </div>`,
+          )
+          .join("")
+      : '<p class="management-hint">No hay solicitudes pendientes.</p>';
+    requests.querySelectorAll(".swap-approve").forEach((button) =>
+      button.addEventListener("click", () => {
+        const request = swapRequests.find((r) => r.id === button.dataset.id);
+        if (!request) return;
+        request.status = "Aprobada";
+        addAudit(
+          `Intercambio aprobado: ${request.from} ↔ ${request.to} (${request.date}). Registra los turnos resultantes en el formulario de cambios.`,
+        );
+        renderManagementPanels();
+      }),
+    );
+  }
+  const log = $("auditLog");
+  if (log)
+    log.innerHTML = auditLog.length
+      ? auditLog
+          .slice(0, 12)
+          .map(
+            (entry) =>
+              `<div class="log-item"><span>${escapeHTML(entry.message)}</span><small>${new Date(entry.date).toLocaleString("es-ES")}</small></div>`,
+          )
+          .join("")
+      : '<p class="management-hint">Todavía no hay modificaciones registradas.</p>';
+  const overrides = $("overrideList");
+  if (overrides) {
+    overrides.innerHTML = runtimeOverrides.length
+      ? runtimeOverrides
+          .map(
+            (item) =>
+              `<div class="log-item"><span><strong>${escapeHTML(item.operator)}</strong><small>${escapeHTML(item.from)} → ${escapeHTML(item.to)} · ${escapeHTML(item.shift || "LIBRE")}</small></span><button class="danger override-delete" data-id="${item.id}" type="button">Eliminar</button></div>`,
+          )
+          .join("")
+      : '<p class="management-hint">No hay cambios manuales.</p>';
+    overrides.querySelectorAll(".override-delete").forEach((button) =>
+      button.addEventListener("click", () => {
+        const item = runtimeOverrides.find(
+          (entry) => entry.id === button.dataset.id,
+        );
+        if (
+          !item ||
+          !confirm(
+            `¿Eliminar el cambio de ${item.operator} (${item.from} a ${item.to})?`,
+          )
+        )
+          return;
+        runtimeOverrides = runtimeOverrides.filter(
+          (entry) => entry.id !== item.id,
+        );
+        addAudit(
+          `Se eliminó el cambio manual de ${item.operator} (${item.from} a ${item.to}).`,
+        );
+        render();
+      }),
+    );
+  }
+}
+
+function validateSchedule() {
+  const issues = [];
+  const year = new Date().getFullYear();
+  const monthIndex = new Date().getMonth();
+  const totalDays = new Date(year, monthIndex + 1, 0).getDate();
+  operators.forEach((op) => {
+    let previousEnd = null;
+    for (let day = 1; day <= totalDays; day++) {
+      const date = new Date(year, monthIndex, day);
+      const code = getShiftForDate(date, op.row);
+      if (!code || !SHIFTS[code]) continue;
+      const [startHour, , endHour] = SHIFTS[code].time
+        .match(/\d\d/g)
+        .map(Number);
+      const start = new Date(year, monthIndex, day, startHour);
+      const end = new Date(year, monthIndex, day, endHour);
+      if (endHour <= startHour) end.setDate(end.getDate() + 1);
+      if (previousEnd) {
+        const restHours = (start - previousEnd) / 3600000;
+        if (restHours >= 0 && restHours < 11) {
+          issues.push(
+            `${op.name}: ${date.toLocaleDateString("es-ES")} · solo ${restHours.toFixed(1)} h entre turnos.`,
+          );
+        }
+      }
+      previousEnd = end;
+    }
+  });
+  return issues;
+}
+
+function renderInsights() {
+  const host = $("insightsContent");
+  if (!host || !operators.length) return;
+  const teams = PLAN.equipos.map((team) => ({
+    name: team.nombre,
+    people: team.miembros.filter((member) =>
+      operators.some((op) => op.name === member.nombre),
+    ).length,
+  }));
+  const issues = validateSchedule();
+  const currentMonth = months.find(
+    (m) =>
+      m.year === new Date().getFullYear() && m.index === new Date().getMonth(),
+  );
+  const monthLabel = currentMonth
+    ? `${capitalize(currentMonth.name)} ${currentMonth.year}`
+    : "Mes actual sin datos";
+  host.innerHTML = `
+    <div class="insight-cards">
+      <article class="insight-card"><small>Personal</small><strong>${operators.length}</strong></article>
+      <article class="insight-card"><small>Equipos</small><strong>${PLAN.equipos.length}</strong></article>
+      <article class="insight-card"><small>Cambios manuales</small><strong>${runtimeOverrides.length}</strong></article>
+      <article class="insight-card"><small>Solicitudes pendientes</small><strong>${swapRequests.filter((r) => r.status === "Pendiente").length}</strong></article>
+    </div>
+    <h4>Distribución por equipos · ${escapeHTML(monthLabel)}</h4>
+    <div class="team-overview">${teams.map((t) => `<div class="team-chip"><strong>${escapeHTML(t.name)}</strong><span>${t.people} integrantes</span></div>`).join("")}</div>
+    <h4>Comprobación de cobertura</h4>
+    <p class="${issues.length ? "validation-warning" : "validation-ok"}">${issues.length ? `Se han detectado ${issues.length} posibles descansos inferiores a 11 horas. Revisa el detalle:` : "No se detectan descansos inferiores a 11 horas en el mes actual."}</p>
+    ${
+      issues.length
+        ? `<details><summary>Ver incidencias (primeras 20)</summary><ul>${issues
+            .slice(0, 20)
+            .map((i) => `<li>${escapeHTML(i)}</li>`)
+            .join("")}</ul></details>`
+        : ""
+    }
+    <p class="management-hint">Aviso orientativo configurable: no es una certificación de cumplimiento legal. Comprueba siempre el convenio y las reglas aplicables.</p>`;
+}
+
+$("teamFilter")?.addEventListener("change", function () {
+  selectedTeamFilter = this.value || "all";
+  if (operators.length && !currentOperator) render();
+});
+
+$("exceptionForm")?.addEventListener("submit", function (event) {
+  event.preventDefault();
+  const operator = $("exceptionOperator").value;
+  const from = $("exceptionFrom").value;
+  const to = $("exceptionTo").value;
+  const shift = $("exceptionShift").value;
+  if (!operator || !from || !to || from > to)
+    return alert("Comprueba el trabajador y el rango de fechas.");
+  const item = { id: `${Date.now()}`, operator, from, to, shift };
+  runtimeOverrides.push(item);
+  addAudit(`${operator}: ${shift || "LIBRE"} del ${from} al ${to}.`);
+  this.reset();
+  render();
+});
+
+$("swapForm")?.addEventListener("submit", function (event) {
+  event.preventDefault();
+  const from = $("swapFromOperator").value;
+  const to = $("swapToOperator").value;
+  const date = $("swapDate").value;
+  if (!date || !from || !to || from === to)
+    return alert("Selecciona dos trabajadores distintos y una fecha.");
+  swapRequests.unshift({
+    id: `${Date.now()}`,
+    from,
+    to,
+    date,
+    status: "Pendiente",
+  });
+  addAudit(`Solicitud de intercambio: ${from} ↔ ${to} (${date}), pendiente.`);
+  this.reset();
+  renderManagementPanels();
+  renderInsights();
 });
 
 const THEME_KEY = "turnos_operaciones_theme_v1";
@@ -1999,6 +2268,15 @@ $("resetBtn").addEventListener("click", function () {
   }
 
   try {
+    loadManagementData();
+    $("teamFilter").innerHTML =
+      '<option value="all">Todos los equipos</option>' +
+      PLAN.equipos
+        .map(
+          (t) =>
+            `<option value="${escapeHTML(t.nombre)}">${escapeHTML(t.nombre)}</option>`,
+        )
+        .join("");
     rows = buildRowsFromPlan();
     $("year").value = new Date().getFullYear();
     detectMonths();
