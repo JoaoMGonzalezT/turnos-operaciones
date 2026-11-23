@@ -39,7 +39,7 @@ const PLAN = {
       desfase: 14,
       miembros: [
         { nombre: "Yeray Rio Mira", centro: "A" },
-        { nombre: "Rafa", centro: "L" },
+        { nombre: "Rafael", centro: "L" },
       ],
     },
     {
