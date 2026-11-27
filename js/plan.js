@@ -130,8 +130,13 @@ const PLAN = {
     {
       operador: "Joao Gonzalez",
       desde: "2026-01-01",
-      hasta: "2026-10-13",
+      hasta: "2026-10-12",
       turno: "",
+    },{
+      operador: "Joao Gonzalez",
+      desde: "2026-10-13",
+      hasta: "2026-10-25",
+      centro: "A",
     },
   ],
 };
