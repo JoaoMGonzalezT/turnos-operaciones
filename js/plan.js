@@ -113,7 +113,7 @@ const PLAN = {
       operador: "Waldy Mercado",
       desde: "2026-03-26",
       hasta: "2026-03-29",
-      centro: "L",
+      centro: "A",
     },
     {
       operador: "Waldy Mercado",

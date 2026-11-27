@@ -451,13 +451,25 @@ function buildRowsFromPlan() {
   );
   const lastYear = year + PLAN.aniosAdelante;
 
-  const people = PLAN.equipos.flatMap((team) =>
-    team.miembros.map((member) => ({ team, member })),
+  // nombre -> entradas { team, member }. Una persona puede tener varias (traslados entre equipos)
+  // con periodos desde/hasta distintos, y sale en una única fila.
+  const byName = new Map();
+  PLAN.equipos.forEach((team) =>
+    team.miembros.forEach((member) => {
+      if (!byName.has(member.nombre)) byName.set(member.nombre, []);
+      byName.get(member.nombre).push({ team, member });
+    }),
   );
+  const names = [...byName.keys()];
+  const isActive = (member, key) =>
+    !(
+      (member.desde && key < member.desde) ||
+      (member.hasta && key > member.hasta)
+    );
   const head = [String(first.getFullYear())];
   const weekdays = [""];
   const numbers = [""];
-  const body = people.map(({ member }) => [member.nombre]);
+  const body = names.map((name) => [name]);
 
   for (let y = first.getFullYear(); y <= lastYear; y++) {
     for (
@@ -471,9 +483,13 @@ function buildRowsFromPlan() {
         head.push(day === 1 ? MONTHS[m] : "");
         weekdays.push(WEEKDAYS[date.getDay()]);
         numbers.push(String(day));
-        people.forEach(({ team, member }, i) =>
-          body[i].push(shiftFor(team, member, date)),
-        );
+        const key = iso(date);
+        names.forEach((name, i) => {
+          const entry = byName
+            .get(name)
+            .find(({ member }) => isActive(member, key));
+          body[i].push(entry ? shiftFor(entry.team, entry.member, date) : "");
+        });
       }
     }
   }
@@ -849,7 +865,7 @@ function renderStats(row) {
                 <input type="date" id="statsEndDate" value="${statsEndDate}">
             </div>
             <button type="button" id="applyStatsFilter">Aplicar fechas</button>
-            <button type="button" id="clearStatsFilter" class="secondary">Ver año completo</button>
+            <button type="button" id="clearStatsFilter" class="secondary">Ver año completo(hasta hoy) </button> 
         </div>
 
         <p class="stats-period">${escapeHTML(periodLabel)}</p>
@@ -1080,6 +1096,7 @@ function updateFilterOptions() {
  * La primera semana se rellena con huecos hasta el día de la semana del día 1.
  */
 function renderCalendar(row) {
+  const slot = getCurrentSlot();
   $("container").innerHTML = "";
   updateFilterOptions();
 
@@ -1167,6 +1184,13 @@ function renderCalendar(row) {
         cell.title = "Día libre";
       }
 
+      // Turno en curso: se marca en verde (hoy, o ayer si todavía dura la noche).
+      if (isCurrentShift(date, code, slot)) {
+        cell.classList.add("en-turno");
+        cell.innerHTML += `<div class="ahora-badge">● En turno ahora</div>`;
+        cell.title = `En turno ahora · ${cell.title}`;
+      }
+
       calendar.appendChild(cell);
     }
 
@@ -1184,29 +1208,106 @@ function renderCalendar(row) {
   });
 }
 
+const SLOT_ORDER = ["M", "T", "N"];
+const SLOT_NAMES = { M: "Mañana", T: "Tarde", N: "Noche" };
+
+/** ¿Dos fechas son el mismo día? */
+function sameDay(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 /**
- * Quién está de servicio AHORA. Según la hora: 07-15 mañana, 15-23 tarde, desde 23 noche;
- * de 00 a 07 sigue la noche que empezó el día anterior. Agrupa por centro (A / L).
+ * Turno en curso a la hora `now`: { date, letter }. `date` es el día en que EMPEZÓ el turno.
+ * 07-15 mañana, 15-23 tarde, desde las 23 noche; de 00 a 07 sigue la noche que empezó el día anterior.
+ */
+function getCurrentSlot(now = getToday()) {
+  const h = now.getHours();
+  const letter = h >= 23 ? "N" : h >= 15 ? "T" : h >= 7 ? "M" : "N";
+  return {
+    date: new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - (h < 7 ? 1 : 0),
+    ),
+    letter,
+  };
+}
+
+/** Turno `offset` posiciones antes (-1) o después (+1): M → T → N → M del día siguiente. */
+function shiftSlot(slot, offset) {
+  const idx = SLOT_ORDER.indexOf(slot.letter) + offset;
+  const d = slot.date;
+  return {
+    date: new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate() + Math.floor(idx / 3),
+    ),
+    letter: SLOT_ORDER[((idx % 3) + 3) % 3],
+  };
+}
+
+/** Personas de servicio en un turno, por centro: { A: [...], L: [...] }. */
+function whoIsOn(slot) {
+  const group = { A: [], L: [] };
+  operators.forEach((op) => {
+    const code = getShiftForDate(slot.date, op.row);
+    if (code && code[0] === slot.letter) group[code[1]].push(op.name);
+  });
+  return group;
+}
+
+/** ¿Esta celda (día + código de turno) es el turno en curso? Sirve para marcarla en los calendarios. */
+function isCurrentShift(date, code, slot = getCurrentSlot()) {
+  return Boolean(code) && code[0] === slot.letter && sameDay(date, slot.date);
+}
+
+/** Redibuja cuando cambia el turno en curso (a las 07:00, 15:00 y 23:00), sin recargar la página. */
+function watchShiftChange() {
+  const key = () => {
+    const t = getCurrentSlot();
+    return `${t.date.toDateString()}${t.letter}`;
+  };
+  let last = key();
+  setInterval(() => {
+    if (key() === last) return;
+    last = key();
+    render();
+  }, 60000);
+}
+
+/**
+ * Recuadro de la vista conjunta con tres turnos: anterior, en curso (destacado) y siguiente.
+ * Cada uno muestra su horario y las personas de servicio en Arteixo y en Laracha.
  */
 function renderOnDutyNow() {
   const now = getToday();
-  const h = now.getHours();
-  const letter = h >= 23 ? "N" : h >= 15 ? "T" : h >= 7 ? "M" : "N";
-  const base = new Date(now);
-  // De 00:00 a 07:00 sigue la noche que empezó el día anterior.
-  if (h < 7) base.setDate(base.getDate() - 1);
-  const names = { M: "Mañana", T: "Tarde", N: "Noche" };
-  const group = { A: [], L: [] };
-  operators.forEach((op) => {
-    const code = getShiftForDate(base, op.row);
-    if (code && code[0] === letter) group[code[1]].push(op.name);
-  });
-  const line = (label, list) =>
-    `<div><strong>${label}:</strong> ${list.length ? list.map(escapeHTML).join(", ") : "—"}</div>`;
-  return `<div class="now-box">
-      <div class="now-title">🟢 Ahora en turno · ${names[letter]}</div>
-      ${line("Arteixo", group.A)}${line("Laracha", group.L)}
-    </div>`;
+  const current = getCurrentSlot(now);
+  const hoy = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dia = (slot) => {
+    const diff = Math.round((slot.date - hoy) / 86400000);
+    return diff === -1 ? " · ayer" : diff === 1 ? " · mañana" : "";
+  };
+  const bloque = (titulo, slot, clase) => {
+    const g = whoIsOn(slot);
+    const linea = (centro, lista) =>
+      `<div><span class="now-center">${centro}</span>${lista.length ? lista.map(escapeHTML).join(", ") : "—"}</div>`;
+    const horario = SHIFTS[`${slot.letter}A`].time.replace(/\s*-\s*/, "–");
+    return `<div class="now-slot ${clase}">
+        <div class="now-slot-title">${titulo}</div>
+        <div class="now-slot-sub">${SLOT_NAMES[slot.letter]} · ${horario}${dia(slot)}</div>
+        ${linea("Arteixo", g.A)}${linea("Laracha", g.L)}
+      </div>`;
+  };
+  return `<div class="now-box"><div class="now-grid">
+      ${bloque("⏮ Turno anterior", shiftSlot(current, -1), "prev")}
+      ${bloque("🟢 Ahora en turno", current, "current")}
+      ${bloque("⏭ Siguiente turno", shiftSlot(current, 1), "next")}
+    </div></div>`;
 }
 
 /**
@@ -1297,6 +1398,7 @@ function buildPatternKey(operator) {
  * y desliza en horizontal si no cabe.
  */
 function renderAllOperatorsCalendar() {
+  const slot = getCurrentSlot();
   $("container").innerHTML = "";
   updateFilterOptions();
 
@@ -1391,7 +1493,12 @@ function renderAllOperatorsCalendar() {
           table += `<td${todayId} class="no-data-cell${todayClass}" title="Sin datos">—</td>`;
         } else if (code) {
           const shift = SHIFTS[code];
-          table += `<td${todayId} class="shift-cell ${shiftClass(code)}${todayClass}" title="${escapeHTML(shift.name)} · ${escapeHTML(shift.time)}">${code}</td>`;
+          const ahora = isCurrentShift(
+            new Date(month.year, month.index, day),
+            code,
+            slot,
+          );
+          table += `<td${todayId} class="shift-cell ${shiftClass(code)}${todayClass}${ahora ? " en-turno-cell" : ""}" title="${ahora ? "En turno ahora · " : ""}${escapeHTML(shift.name)} · ${escapeHTML(shift.time)}">${code}</td>`;
         } else {
           table += `<td${todayId} class="free-cell${todayClass}" title="Día libre">L</td>`;
         }
@@ -1412,8 +1519,7 @@ function renderAllOperatorsCalendar() {
 function render() {
   if (!operators.length) return;
   $("icsBtn").hidden = !currentOperator;
-  renderManagementPanels();
-  renderInsights();
+  if (typeof renderAdminModule === "function") renderAdminModule();
 
   if (currentOperator) {
     const row = currentOperator.row;
@@ -1490,11 +1596,16 @@ $("printBtn").addEventListener("click", function () {
 /* =========================================
    MEJORAS: equipos, validaciones, gestión y auditoría
 ========================================= */
-function getOperatorTeam(name) {
-  const team = PLAN.equipos.find((t) =>
-    t.miembros.some((m) => m.nombre === name),
+function getOperatorTeam(name, date = getToday()) {
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const entries = PLAN.equipos.flatMap((team) =>
+    team.miembros.filter((m) => m.nombre === name).map((m) => ({ team, m })),
   );
-  return team?.nombre || "Sin equipo";
+  const current =
+    entries.find(
+      ({ m }) => (!m.desde || m.desde <= key) && (!m.hasta || m.hasta >= key),
+    ) || entries[entries.length - 1];
+  return current ? current.team.nombre : "Sin equipo";
 }
 
 function saveManagementData() {
@@ -1645,8 +1756,10 @@ function renderInsights() {
   if (!host || !operators.length) return;
   const teams = PLAN.equipos.map((team) => ({
     name: team.nombre,
-    people: team.miembros.filter((member) =>
-      operators.some((op) => op.name === member.nombre),
+    people: team.miembros.filter(
+      (member) =>
+        operators.some((op) => op.name === member.nombre) &&
+        getOperatorTeam(member.nombre) === team.nombre,
     ).length,
   }));
   const issues = validateSchedule();
@@ -2269,6 +2382,7 @@ $("resetBtn").addEventListener("click", function () {
 
   try {
     loadManagementData();
+    if (typeof bootAdminData === "function") bootAdminData();
     $("teamFilter").innerHTML =
       '<option value="all">Todos los equipos</option>' +
       PLAN.equipos
@@ -2290,6 +2404,9 @@ $("resetBtn").addEventListener("click", function () {
 
     render();
     scrollToTodayAfterRender();
+
+    watchShiftChange();
+    if (typeof initAdmin === "function") initAdmin();
 
     $("fileStatus").textContent = "✓ Turnos generados desde el plan";
     updateStorageStatus(true, "● Plan de turnos cargado");
