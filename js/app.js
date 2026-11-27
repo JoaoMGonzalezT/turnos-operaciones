@@ -810,7 +810,6 @@ function calculateStats(row, startDate = "", endDate = "") {
         if (code.endsWith("L")) {
           stats.LARACHA++;
         }
-      }
         if (code.endsWith("")) {
           stats.LIBRE++;
         }
